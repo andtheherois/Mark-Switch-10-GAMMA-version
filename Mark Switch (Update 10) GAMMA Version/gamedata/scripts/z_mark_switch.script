@@ -1,0 +1,130 @@
+--[[
+	=====================================================================
+	Addon      : Mark Switch
+	Link       : https://www.moddb.com/mods/stalker-anomaly/addons/mark-switch
+	Author     : party_50
+	Date       : 10.02.2024
+	Last Edit  : 13.03.2024
+	=====================================================================
+--]]
+
+
+local KEYBIND
+local SOUND
+
+local current_marks = {}
+local last_weapon_id
+
+
+function init()	
+	SOUND = sound_object('interface\\mark_adjust')
+end
+
+function on_option_change()
+	KEYBIND = z_mark_switch_mcm.get_config("keybind")
+end
+
+function get_sight_section(wpn_section)
+	local parent = ini_sys:r_string_ex(wpn_section, "parent_section") or wpn_section
+	if #parent == #wpn_section then
+		return wpn_section
+	end
+
+	return wpn_section:sub(#parent + 2)
+end
+
+function get_mark_count(sight)
+	return ini_sys:r_float_ex(sight, "ms_count") or 1
+end
+
+function get_mark_color(sight, i)
+	local colors = parse_list(ini_sys, sight, "ms_colors")
+	if not colors or #colors == 0 then
+		return "0, 0, 0, 0"
+	end
+	
+	if i >= #colors then
+		i = #colors - 1
+	end
+	
+	return ini_sys:r_string_ex("markswitch_colors", colors[i + 1])
+end
+
+function update_shader(wpn_id, sight)
+	get_console():execute("markswitch_current " .. tostring(current_marks[wpn_id] or 0))
+	get_console():execute("markswitch_count " .. tostring(get_mark_count(sight)))
+	get_console():execute("markswitch_color " .. get_mark_color(sight, current_marks[wpn_id] or 0))
+end
+
+function apply_next_mark(wpn_id, sight)
+	SOUND:play(db.actor, 0, sound_object.s2d)
+	game.play_hud_anm("script\\mark_adjust.anm", 2, 2, 1, false, false)
+	
+	local mark = current_marks[wpn_id] or 0
+	mark = (mark + 1) % get_mark_count(sight)
+	current_marks[wpn_id] = mark
+	 
+	update_shader(wpn_id, sight)
+end
+
+function on_key_release(key)
+	if key == KEYBIND then
+		if not (db.actor and db.actor:alive()) then
+			return
+		end
+	
+		local wpn = db.actor:active_item()
+		if not wpn then
+			return
+		end
+		
+		local sight = get_sight_section(wpn:section())
+		if get_mark_count(sight) < 2 then
+			return
+		end
+		
+		apply_next_mark(wpn:id(), sight)
+	end
+end
+
+function actor_on_update()
+	if not (db.actor and db.actor:alive()) then
+		return
+	end
+	
+	local wpn = db.actor:active_item()
+	if not wpn then
+		return
+	end
+	
+	if not last_weapon_id or last_weapon_id ~= wpn:id() then
+		last_weapon_id = wpn:id()
+		local sight = get_sight_section(wpn:section())
+		update_shader(wpn:id(), sight)
+	end
+end
+
+function server_entity_on_unregister(obj)
+	if current_marks[obj.id] then
+		current_marks[obj.id] = nil
+	end
+end
+
+function save_state(m_data)
+	m_data.mark_switch_current_marks = current_marks
+end
+
+function load_state(m_data)
+	current_marks = type(m_data.mark_switch_current_marks) == "table" and m_data.mark_switch_current_marks or {}
+end
+
+function on_game_start()
+	init()
+	on_option_change()
+	RegisterScriptCallback("on_option_change", on_option_change)
+	RegisterScriptCallback("on_key_release", on_key_release)
+	RegisterScriptCallback("actor_on_update", actor_on_update)
+	RegisterScriptCallback("server_entity_on_unregister", server_entity_on_unregister)
+	RegisterScriptCallback("save_state", save_state)
+	RegisterScriptCallback("load_state", load_state)
+end
