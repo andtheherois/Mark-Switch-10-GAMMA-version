@@ -2,7 +2,6 @@
 
 uniform float4 markswitch_current;
 uniform float4 markswitch_count;
-uniform float4 markswitch_color;
 
 int mark_sides()
 {
@@ -26,19 +25,4 @@ float2 mark_adjust(float2 pos)
 	float p_y = clamp(d_y + pos.y, d_y, d_y + 1) / sides;
 	
 	return float2(p_x, p_y);
-}
-
-float current_lum()
-{
-	float lum_min = 0.85;
-	float lum_max = 3;
-	float lum = s_tonemap.Load(int3(0, 0, 0)).x;
-	return clamp(1 - (lum - lum_min) / (lum_max - lum_min), 0, 1);
-}
-
-float4 lum_adjust(float4 color)
-{
-	if (markswitch_color.a)
-		color = float4(markswitch_color.r, markswitch_color.g, markswitch_color.b, markswitch_color.a * (color.r + (1 - current_lum()) * color.g));
-	return color;
 }

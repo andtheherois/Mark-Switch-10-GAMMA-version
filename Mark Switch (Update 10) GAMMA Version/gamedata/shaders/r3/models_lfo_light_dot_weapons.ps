@@ -23,11 +23,7 @@ float4 main	(p_flat I, float4 pos2d: SV_Position, float2 tc0: TEXCOORD0): SV_Tar
 	pos2d.xy = mark_adjust(pos2d.xy / 512.0) * 512.0 * mark_sides();
 	#endif
 	
-	float4 color = s_base.Load(pos2d.xyz) * m_hud_params.x;
-	
-	#ifdef MARK_ADJUST
-	color = lum_adjust(color);
-	#endif
+	float4 color = s_base.Load(pos2d.xyz, 0) * m_hud_params.x;
 	
 	return color;
 }

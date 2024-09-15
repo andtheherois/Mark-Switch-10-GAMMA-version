@@ -4,13 +4,17 @@
 	Link       : https://www.moddb.com/mods/stalker-anomaly/addons/mark-switch
 	Author     : party_50
 	Date       : 10.02.2024
-	Last Edit  : 13.03.2024
+	Last Edit  : 15.09.2024
 	=====================================================================
 --]]
 
 
 local KEYBIND
 local SOUND
+local ALL_PARAMETERS = {
+	ms_count = "float",
+	ms_colors = "ms_color"
+}
 
 local current_marks = {}
 local last_weapon_id
@@ -24,6 +28,28 @@ function on_option_change()
 	KEYBIND = z_mark_switch_mcm.get_config("keybind")
 end
 
+function get_mark_count(section)
+	return ini_sys:r_float_ex(section, "ms_count")
+end
+
+function get_mark_color(section, i)
+	local colors = parse_list(ini_sys, section, "ms_colors")
+	if not colors or #colors == 0 then
+		return nil
+	end
+	
+	if i >= #colors then
+		i = #colors - 1
+	end
+	
+	local color = ini_sys:r_string_ex("markswitch_colors", colors[i + 1])
+	if not color then
+		error("Unable to find color " .. colors[i + 1] .. " in markswitch_colors")
+	end
+	
+	return color
+end
+
 function get_sight_section(wpn_section)
 	local parent = ini_sys:r_string_ex(wpn_section, "parent_section") or wpn_section
 	if #parent == #wpn_section then
@@ -33,38 +59,65 @@ function get_sight_section(wpn_section)
 	return wpn_section:sub(#parent + 2)
 end
 
-function get_mark_count(sight)
-	return ini_sys:r_float_ex(sight, "ms_count") or 1
+function parse_key(section, key, type, current_mark)
+	if key == "ms_count" then
+		return get_mark_count(section)
+	elseif key == "ms_colors" then
+		return get_mark_color(section, current_mark)
+	end
 end
 
-function get_mark_color(sight, i)
-	local colors = parse_list(ini_sys, sight, "ms_colors")
-	if not colors or #colors == 0 then
-		return "0, 0, 0, 0"
+function parse_parameters(wpn)
+	local values = {}
+	
+	local current_mark = current_marks[wpn:id()] or 0
+	values["ms_current"] = current_mark
+
+	wpn:iterate_installed_upgrades(
+		function(upgr_sec)
+			for key, type in pairs(ALL_PARAMETERS) do
+				values[key] = parse_key(upgr_sec, key, type, current_mark)
+			end
+		end
+	)
+	
+	local wpn_section = wpn:section()
+	local sight_section = get_sight_section(wpn_section)
+	for key, type in pairs(ALL_PARAMETERS) do
+		if not values[key] then
+			values[key] = parse_key(wpn_section, key, type, current_mark)
+		end
+		if not values[key] then
+			values[key] = parse_key(sight_section, key, type, current_mark)
+		end
 	end
 	
-	if i >= #colors then
-		i = #colors - 1
+	return values
+end
+
+function get(info, key, default)
+	if info[key] then
+		return info[key]
 	end
-	
-	return ini_sys:r_string_ex("markswitch_colors", colors[i + 1])
+	return default
 end
 
-function update_shader(wpn_id, sight)
-	get_console():execute("markswitch_current " .. tostring(current_marks[wpn_id] or 0))
-	get_console():execute("markswitch_count " .. tostring(get_mark_count(sight)))
-	get_console():execute("markswitch_color " .. get_mark_color(sight, current_marks[wpn_id] or 0))
+function update_shader(wpn, info)
+	get_console():execute("markswitch_current " .. get(info, "ms_current", 0))
+	get_console():execute("markswitch_count " .. get(info, "ms_count", 1))
+	get_console():execute("markswitch_color " .. get(info, "ms_colors", "0, 0, 0, 0"))
 end
 
-function apply_next_mark(wpn_id, sight)
+function apply_next_mark(wpn, info)
 	SOUND:play(db.actor, 0, sound_object.s2d)
 	game.play_hud_anm("script\\mark_adjust.anm", 2, 2, 1, false, false)
 	
-	local mark = current_marks[wpn_id] or 0
-	mark = (mark + 1) % get_mark_count(sight)
-	current_marks[wpn_id] = mark
-	 
-	update_shader(wpn_id, sight)
+	local mark = get(info, "ms_current", 0)
+	mark = (mark + 1) % get(info, "ms_count", 1)
+	current_marks[wpn:id()] = mark
+	
+	info = parse_parameters(wpn)	 
+	update_shader(wpn, info)
 end
 
 function on_key_release(key)
@@ -78,12 +131,12 @@ function on_key_release(key)
 			return
 		end
 		
-		local sight = get_sight_section(wpn:section())
-		if get_mark_count(sight) < 2 then
+		local info = parse_parameters(wpn)
+		if get(info, "ms_count", 1) < 2 then
 			return
 		end
 		
-		apply_next_mark(wpn:id(), sight)
+		apply_next_mark(wpn, info)
 	end
 end
 
@@ -94,13 +147,14 @@ function actor_on_update()
 	
 	local wpn = db.actor:active_item()
 	if not wpn then
+		last_weapon_id = nil
 		return
 	end
 	
 	if not last_weapon_id or last_weapon_id ~= wpn:id() then
 		last_weapon_id = wpn:id()
-		local sight = get_sight_section(wpn:section())
-		update_shader(wpn:id(), sight)
+		local info = parse_parameters(wpn)
+		update_shader(wpn, info)
 	end
 end
 
